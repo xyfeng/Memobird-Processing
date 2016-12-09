@@ -63,12 +63,11 @@ String encodeString(String str) {
 
 String encodeImage(PImage img) {
   img.resize(384, 0);
-  BufferedImage blackAndWhiteImg = new BufferedImage( img.width, img.height, BufferedImage.TYPE_BYTE_BINARY);
-  Graphics2D graphics = blackAndWhiteImg.createGraphics();
-  graphics.drawImage((BufferedImage)img.getImage(), 0, img.height, img.width, -img.height, null);
+  img.filter(GRAY);
+  BufferedImage ditheredImg = ditherImage(img);
 
   try {
-    ImageIO.write(blackAndWhiteImg, "bmp", new File(sketchPath("")  + "data/temp.bmp"));
+    ImageIO.write(ditheredImg, "bmp", new File(sketchPath("")  + "data/temp.bmp"));
   }
   catch (Exception e)
   {
@@ -110,4 +109,76 @@ void postToPrint(PImage img, String str) {
   post.send();
 
   println("Print Reponse: " + post.getContent());
+}
+
+
+/**
+ * Performs Floyd-Steinberg dithering according to
+ * http://en.wikipedia.org/wiki/Floyd%E2%80%93Steinberg_dithering
+ */
+BufferedImage ditherImage(PImage img) {
+  BufferedImage bi = new BufferedImage(img.width, img.height, BufferedImage.TYPE_INT_RGB);
+  bi.getGraphics().drawImage(img.getImage(), 0, 0, null);
+
+  int width = bi.getWidth();
+  int height = bi.getHeight();
+
+  int red[][] = new int[width][height];
+  int grn[][] = new int[width][height];
+  int blu[][] = new int[width][height];
+
+
+  for (int x = 0; x < width; x++) {
+    for (int y = 0; y < height; y++) {
+      red[x][y] = bi.getRGB(x, y) >> 16 & 0xFF; // unsigned int
+      grn[x][y] = bi.getRGB(x, y) >> 8 & 0xFF;  // unsigned int
+      blu[x][y] = bi.getRGB(x, y) & 0xFF;       // unsigned int
+    }
+  }
+  int[][] pixel_floyd = dither(red, height, width);
+  BufferedImage ditheredImage = new BufferedImage(width, height, BufferedImage.TYPE_BYTE_BINARY);
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      int pixel = ((int) pixel_floyd[x][y] << 16)
+        | ((int) pixel_floyd[x][y] << 8)
+        | ((int) pixel_floyd[x][y]);
+      ditheredImage.setRGB(x, y, pixel);
+    }
+  }
+  return ditheredImage;
+}
+
+int[][] dither(int[][] pixel, int height, int width) {
+  int oldpixel, newpixel, error;
+  boolean nbottom, nleft, nright;
+
+  for (int y = 0; y < height; y++) {
+    nbottom = y < height - 1;
+
+    for (int x = 0; x < width; x++) {
+      nleft = x > 0;
+      nright = x < width - 1;
+
+      oldpixel = pixel[x][y];
+      newpixel = oldpixel < 128 ? 0 : 255;
+
+      pixel[x][y] = newpixel;
+
+      error = oldpixel - newpixel;
+
+      if (nright) {
+        pixel[x + 1][y] += 7 * error / 16;
+      }
+      if (nleft & nbottom) {
+        pixel[x - 1][y + 1] += 3 * error / 16;
+      }
+      if (nbottom) {
+        pixel[x][y + 1] += 5 * error / 16;
+      }
+      if (nright && nbottom) {
+        pixel[x + 1][y + 1] += error / 16;
+      }
+    }
+  }
+  return pixel;
 }
